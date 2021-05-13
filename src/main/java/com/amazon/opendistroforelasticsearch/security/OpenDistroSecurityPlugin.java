@@ -55,6 +55,8 @@ import com.amazon.opendistroforelasticsearch.security.configuration.OpenDistroSe
 import com.amazon.opendistroforelasticsearch.security.configuration.PrivilegesInterceptorImpl;
 import com.amazon.opendistroforelasticsearch.security.configuration.Salt;
 import com.amazon.opendistroforelasticsearch.security.dlic.rest.api.OpenDistroSecurityRestApiActions;
+import com.amazon.opendistroforelasticsearch.security.modules.OpenDistroSecurityModule;
+import com.amazon.opendistroforelasticsearch.security.modules.OpenDistroSecurityModulesRegistry;
 import com.amazon.opendistroforelasticsearch.security.ssl.rest.OpenDistroSecuritySSLReloadCertsAction;
 import com.amazon.opendistroforelasticsearch.security.ssl.rest.OpenDistroSecuritySSLCertsInfoAction;
 
@@ -200,7 +202,7 @@ public final class OpenDistroSecurityPlugin extends OpenDistroSecuritySSLPlugin 
     private volatile NamedXContentRegistry namedXContentRegistry = null;
     private volatile DlsFlsRequestValve dlsFlsValve = null;
     private volatile Salt salt;
-
+    private OpenDistroSecurityModulesRegistry moduleRegistry = OpenDistroSecurityModulesRegistry.INSTANCE;
     public static boolean isActionTraceEnabled() {
         return actionTrace.isTraceEnabled();
     }
@@ -457,6 +459,8 @@ public final class OpenDistroSecurityPlugin extends OpenDistroSecuritySSLPlugin 
                 }
                 final Collection<RestHandler> apiHandlers = OpenDistroSecurityRestApiActions.getHandler(settings, configPath, restController, localClient, adminDns, cr, cs, principalExtractor, evaluator, threadPool, Objects.requireNonNull(auditLog));
                 handlers.addAll(apiHandlers);
+                handlers.addAll(moduleRegistry.getRestHandlers(settings, restController, clusterSettings, indexScopedSettings, settingsFilter,
+                    indexNameExpressionResolver, nodesInCluster));
                 log.debug("Added {} management rest handler(s)", apiHandlers.size());
             }
         }
@@ -481,6 +485,8 @@ public final class OpenDistroSecurityPlugin extends OpenDistroSecuritySSLPlugin 
             actions.add(new ActionHandler<>(ConfigUpdateAction.INSTANCE, TransportConfigUpdateAction.class));
             actions.add(new ActionHandler<>(WhoAmIAction.INSTANCE, TransportWhoAmIAction.class));
         }
+
+        actions.addAll(moduleRegistry.getActions());
         return actions;
     }
 
@@ -831,8 +837,10 @@ public final class OpenDistroSecurityPlugin extends OpenDistroSecuritySSLPlugin 
         components.add(evaluator);
         components.add(odsi);
         components.add(dcf);
+        OpenDistroSecurityModule.BaseDependencies baseDependencies = new OpenDistroSecurityModule.BaseDependencies(settings, localClient, clusterService, threadPool, resourceWatcherService,
+            scriptService, xContentRegistry, environment, indexNameExpressionResolver, dcf, cr, null);
 
-
+        components.addAll(moduleRegistry.createComponents(baseDependencies));
         return components;
 
     }
@@ -1006,6 +1014,8 @@ public final class OpenDistroSecurityPlugin extends OpenDistroSecuritySSLPlugin 
             settings.add(Setting.boolSetting(ConfigConstants.OPENDISTRO_SECURITY_UNSUPPORTED_LOAD_STATIC_RESOURCES, true, Property.NodeScope, Property.Filtered));
             settings.add(Setting.boolSetting(ConfigConstants.OPENDISTRO_SECURITY_SSL_CERT_RELOAD_ENABLED, false, Property.NodeScope, Property.Filtered));
             settings.add(Setting.boolSetting(ConfigConstants.OPENDISTRO_SECURITY_UNSUPPORTED_ACCEPT_INVALID_CONFIG, false, Property.NodeScope, Property.Filtered));
+
+            settings.addAll(moduleRegistry.getSettings());
         }
         
         return settings;

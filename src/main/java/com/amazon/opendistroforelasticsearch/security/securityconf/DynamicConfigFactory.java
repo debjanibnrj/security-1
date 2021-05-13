@@ -33,11 +33,13 @@ package com.amazon.opendistroforelasticsearch.security.securityconf;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 import com.amazon.opendistroforelasticsearch.security.auditlog.config.AuditConfig;
 import com.amazon.opendistroforelasticsearch.security.securityconf.impl.NodesDn;
@@ -83,6 +85,7 @@ public class DynamicConfigFactory implements Initializable, ConfigurationChangeL
     private static SecurityDynamicConfiguration<ActionGroupsV7> staticActionGroups = SecurityDynamicConfiguration.empty();
     private static SecurityDynamicConfiguration<TenantV7> staticTenants = SecurityDynamicConfiguration.empty();
     private static final WhitelistingSettings defaultWhitelistingSettings = new WhitelistingSettings();
+    private final List<Consumer<SecurityDynamicConfiguration<ConfigModelV7>>> configChangeConsumers = new ArrayList<>();
 
     static void resetStatics() {
         staticRoles = SecurityDynamicConfiguration.empty();
@@ -119,7 +122,30 @@ public class DynamicConfigFactory implements Initializable, ConfigurationChangeL
 
         return original;
     }
-    
+
+    @SuppressWarnings("unchecked")
+    private void notifyConfigChangeListeners(SecurityDynamicConfiguration<?> config) {
+        for (Consumer<SecurityDynamicConfiguration<ConfigModelV7>> consumer : configChangeConsumers) {
+            try {
+                consumer.accept((SecurityDynamicConfiguration<ConfigModelV7>) config);
+            } catch (Exception e) {
+                log.error("Error in " + consumer + " consuming " + config);
+            }
+        }
+    }
+
+    public <T> void addConfigChangeListener(Class<T> configType, Consumer<SecurityDynamicConfiguration<T>> listener) {
+        if (configType.equals(ConfigModelV7.class)) {
+            @SuppressWarnings("rawtypes")
+            Consumer rawListener = listener;
+            @SuppressWarnings("unchecked")
+            Consumer<SecurityDynamicConfiguration<ConfigModelV7>> configListener = (Consumer<SecurityDynamicConfiguration<ConfigModelV7>>) rawListener;
+            configChangeConsumers.add(configListener);
+        } else {
+            throw new RuntimeException(configType + " is not supported by addConfigChangeListener()");
+        }
+    }
+
     protected final Logger log = LogManager.getLogger(this.getClass());
     private final ConfigurationRepository cr;
     private final AtomicBoolean initialized = new AtomicBoolean();
